@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realistic Road Generation & Auto Camera</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            background: #ddd;
+            display: block;
+            margin: 10px auto;
+            border: 2px solid black;
+        }
+    </style>
+</head>
+
+<body>
+
+    <textarea id="roadInput" rows="3" cols="50"
+        placeholder='input road path [[200, "left", 45], [300, "right", 90], [200, "left", 45]]'>
+[[200, "left", 45], [300, "right", 90], [200, "left", 45]]
+</textarea>
+    <br>
+    <button onclick="drawRoad()">Draw Road</button>
+    <button onclick="startAnimation()">Start Animation</button>
+
+
+<h3>Car Settings</h3>
+<label>Car Length: <input type="number" id="carLength" value="8" step="0.1"></label><br>
+<label>Wheelbase: <input type="number" id="wheelbase" value="8" step="0.1"></label><br>
+<label>Distance to Side Road: <input type="number" id="sideDistance" value="1.2" step="0.1"></label><br>
+<label>Car Width: <input type="number" id="carWidth" value="3" step="0.1"></label><br>
+<label>Track Width: <input type="number" id="trackWidth" value="6" step="0.1"></label><br>
+    <p id="info" style="position:absolute; right:12%"></p>
+
+    <p id="roadInfo" style="position:absolute; left:12%">Waiting for animation...</p>
+    <canvas id="canvas" width="900" height="500" style="width:80%;"></canvas>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let path = [];
+        let car = { x: 150, y: 300, angle: 0, speed: 0.15, index: 0 };  // Adjust speed here
+        let isAnimating = false;
+        let isPathDrawn = false;
+        const laneWidth = 30;
+        let camera = { x: 0, y: 0 };
+        let carDirection = 0;  // To store car's current direction
+        let publicAngle = 0;
+        let publicSteeringAngle = 0;
+        let publicSafeSpeedKmh = 0;
+        let debugCurrentPath = {length:0,direction:"left",turnAngle:0,steeringAngle:0};
+
+        // Car settings
+        let carLength = parseFloat(document.getElementById("carLength").value);
+        let wheelbase = parseFloat(document.getElementById("wheelbase").value);
+        let sideDistance = parseFloat(document.getElementById("sideDistance").value);
+
+        function drawRoad() {
+            path = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let roadData;
+            try {
+                roadData = JSON.parse(document.getElementById("roadInput").value);
+            } catch (error) {
+                alert("Invalid JSON format!");
+                return;
+            }
+
+            let startX = 150, startY = 300;
+            let currentAngle = 0;
+
+            for (let command of roadData) {
+                let length = command[0];
+                let direction = command[1];
+                let turnAngle = command[2];
+
+                let end = getNewPosition(startX, startY, currentAngle, length);
+                path.push({ x: startX, y: startY, type: "line", endX: end.x, endY: end.y, storedAngle: turnAngle, storedDirection: direction, storedLength: length });
+
+                let turnPath = generateTurn(end.x, end.y, currentAngle, direction, turnAngle);
+                path = path.concat(turnPath);
+
+                let lastTurn = turnPath[turnPath.length - 1];
+                startX = lastTurn.endX;
+                startY = lastTurn.endY;
+                currentAngle = direction === "left" ? currentAngle - turnAngle : currentAngle + turnAngle;
+
+            }
+
+            isPathDrawn = true;
+            drawScene();
+        }
+
+        function generateTurn(x, y, angle, direction, turnAngle) {
+            const turnPath = [];
+            const step = 1;
+            const radius = 50;
+            const numSteps = turnAngle / step;
+
+            let currentAngle = angle;
+            for (let i = 0; i < numSteps; i++) {
+                currentAngle += (direction === "left" ? -step : step);
+                let newPos = getNewPosition(x, y, currentAngle, radius * Math.PI / numSteps);
+                turnPath.push({ x, y, type: "line", endX: newPos.x, endY: newPos.y });
+                x = newPos.x;
+                y = newPos.y;
+            }
+            publicAngle = currentAngle;
+            return turnPath;
+        }
+        
+        
+        
+        
+
+        function drawScene() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+
+            // Move the canvas to follow the car smoothly
+            ctx.translate(canvas.width / 2 - car.x, canvas.height / 2 - car.y);
+
+            if (isPathDrawn) {
+                drawRoadLines();
+            }
+            drawCar();
+
+            ctx.restore();
+        }
+function getPatternedColor(i) {
+    const colors = [
+        "#777", // Red for i = 0
+        "#555", // Magenta for i = 4
+     
+    ];
+
+    return colors[i % colors.length]; // Cycle through colors based on i
+}
+        function drawRoadLines() {
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < path.length; i++) {
+        let segment = path[i];
+
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = (parseFloat(document.getElementById("trackWidth").value)*10)+4;
+        ctx.beginPath();
+        ctx.moveTo(segment.x, segment.y);
+        ctx.lineTo(segment.endX, segment.endY);
+        ctx.stroke();
+        
+        
+        ctx.strokeStyle = "grey";
+        ctx.lineWidth = parseFloat(document.getElementById("trackWidth").value)*10;
+        ctx.beginPath();
+        ctx.moveTo(segment.x, segment.y);
+        ctx.lineTo(segment.endX, segment.endY);
+        ctx.stroke();
+        
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(segment.x, segment.y);
+        ctx.lineTo(segment.endX, segment.endY);
+        ctx.stroke();
+
+        //drawSideLanes(segment.x, segment.y, segment.endX, segment.endY);
+    }
+}
+
+        function drawSideLanes(x1, y1, x2, y2) {
+            ctx.strokeStyle = "gray";
+            ctx.lineWidth = 2;
+
+            let angle = Math.atan2(y2 - y1, x2 - x1);
+            let offsetX = laneWidth * Math.cos(angle + Math.PI / 2);
+            let offsetY = laneWidth * Math.sin(angle + Math.PI / 2);
+
+            ctx.beginPath();
+            ctx.moveTo(x1 + offsetX, y1 + offsetY);
+            ctx.lineTo(x2 + offsetX, y2 + offsetY);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x1 - offsetX, y1 - offsetY);
+            ctx.lineTo(x2 - offsetX, y2 - offsetY);
+            ctx.stroke();
+        }
+
+        function drawCar() {
+    let carWidth = parseFloat(document.getElementById("carWidth").value)  * 10;  // Convert to pixels (1.2m = 12px)
+    let wheelBase = parseFloat(document.getElementById("wheelbase").value) * 10; // Convert to pixels
+    let carLength = wheelBase;  // Car length = Wheelbase
+    let frontWheelAngle = debugCurrentPath.steeringAngle>3?(debugCurrentPath.direction=="left"?Math.max(0-debugCurrentPath.turnAngle,-45):Math.min(debugCurrentPath.turnAngle,45))* (Math.PI / 180) :0;  // Steering angle in radians
+
+    ctx.fillStyle = "red";
+    ctx.save();
+    ctx.translate(car.x, car.y);
+    ctx.rotate(car.angle * Math.PI / 180);
+
+    // Draw the car body
+    ctx.fillRect(-carLength / 2, -carWidth / 2, carLength, carWidth);
+    
+    // Draw the wheels
+    ctx.fillStyle = "black";
+    let wheelWidth = 3;
+    let wheelHeight = 6;
+
+    // Rear wheels (fixed)
+    ctx.fillRect(-carLength / 2, -carWidth / 2 - 2, wheelHeight, wheelWidth);
+    ctx.fillRect(-carLength / 2, carWidth / 2 - 1, wheelHeight, wheelWidth);
+
+    // Front wheels (rotate with steering)
+    ctx.save();
+    ctx.translate(carLength / 2, -carWidth / 2 - 2);
+    ctx.rotate(frontWheelAngle);
+    ctx.fillRect(-wheelHeight / 2, -wheelWidth / 2, wheelHeight, wheelWidth);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(carLength / 2, carWidth / 2 - 1);
+    ctx.rotate(frontWheelAngle);
+    ctx.fillRect(-wheelHeight / 2, -wheelWidth / 2, wheelHeight, wheelWidth);
+    ctx.restore();
+
+    // Display steering angle text
+    ctx.fillStyle = "white"; // Change color for visibility
+    ctx.font = "14px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(`${publicSteeringAngle.toFixed(1)}°  ${publicSafeSpeedKmh.toFixed(1)} km/h`, 0, -carWidth); 
+
+    ctx.restore();
+}
+
+        function startAnimation() {
+            if (!isPathDrawn || isAnimating) return;
+            isAnimating = true;
+            car.index = 0;
+            animateCar();
+        }
+
+
+        let lastUpdateTime = 0;  // Store the last time the UI was updated
+        let updateInterval = 100; // Throttle update every 100 milliseconds (adjust as needed)
+
+        function animateCar() {
+            if (car.index >= path.length - 100) {
+                extendRoad(); // Create new road path 
+                extendRoad(); // Create new road path 
+                extendRoad(); // Create new road path 
+                extendRoad(); // Create new road path before finishing current one
+            }
+
+            if (car.index >= path.length) {
+                isAnimating = false;
+                return;
+            }
+
+            let segment = path[car.index];
+            let dx = segment.endX - car.x;
+            let dy = segment.endY - car.y;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Display current path segment
+            try {
+
+                document.getElementById("roadInfo").innerText = `Current Path: [${(segment.storedLength).toFixed(1)}m, ${segment.storedDirection}, ${segment.storedAngle.toFixed(1)}°, ${(segment.endX - segment.x).toFixed(1)}]`;
+
+            } catch (error) {
+
+            }
+            // Calculate the steering angle and safe speed
+            let distanceBeforeTurn = distance;
+            let R = distanceBeforeTurn;  // Approximate turning radius
+            let steeringAngle = Math.atan(wheelbase / R) * (180 / Math.PI);  // Steering angle in degrees
+            
+            // Display current path segment
+            try {
+            	debugCurrentPath = {length:segment.storedLength,direction:segment.storedDirection,turnAngle:segment.storedAngle.toFixed(1),steeringAngle:steeringAngle};
+
+                
+            } catch (error) {
+
+            }
+
+            // Safe speed for the turn using physics formula
+            let g = 9.81; // Gravitational constant (m/s²)
+            let mu = 0.8; // Coefficient of friction (road surface)
+            let safeSpeed = Math.sqrt(R * g * mu);  // Safe speed for the turn (m/s)
+
+            // Convert safeSpeed from m/s to km/h
+            let safeSpeedKmh = safeSpeed * 3.6;  // Convert to km/h
+            let safeSpeedMs = safeSpeed; // m/s (no conversion needed)
+            publicSafeSpeedKmh = safeSpeedKmh;
+
+            // Calculate minimum side distance
+
+            let minSideDistance = (wheelbase ** 2) / (4 * R);
+            minSideDistance = Math.max(minSideDistance, 1.2); // Ensure a minimum safety buffer
+
+            // Calculate max steering angle based on current speed and friction limit
+            let maxTurningRadius = (car.speed / 3.6) ** 2 / (g * mu);  // Using v^2 / (g * mu) to calculate turning radius
+            let maxSteeringAngle = Math.atan(wheelbase / maxTurningRadius) * (180 / Math.PI); // Max steering angle based on max turning radius
+
+            publicSteeringAngle = Math.atan(wheelbase / maxTurningRadius) * (180 / Math.PI); // Max steering angle based on max turning radius
+
+            // Constrain maxSteeringAngle to a maximum of 30 degrees for safety
+            maxSteeringAngle = Math.min(maxSteeringAngle, 30);  // Limit max steering angle
+
+            // Throttling: Update the UI only if enough time has passed
+            let currentTime = Date.now();
+            if (currentTime - lastUpdateTime > updateInterval) {
+                // Show calculated information in the UI
+                document.getElementById("info").innerText = `Distance Before Turn: ${distanceBeforeTurn.toFixed(1)}m | 
+            Steering Angle: ${steeringAngle.toFixed(1)/2}° | 
+            Max Speed: ${safeSpeedKmh.toFixed(1)} km/h | 
+            Max Speed: ${safeSpeedMs.toFixed(1)} m/s | 
+            Side Distance: ${minSideDistance.toFixed(1)} m | 
+            Max Steering Angle: ${maxSteeringAngle.toFixed(1)}°`;
+
+                lastUpdateTime = currentTime; // Update last update time
+            }
+
+            // Set car speed: on straight roads, the car can go above 200 km/h, but we adjust for turns
+            let maxStraightSpeed = 200;  // 200 km/h (maximum speed on straight roads)
+            let maxSpeedKmh = (Math.abs(steeringAngle) < 5) ? maxStraightSpeed : Math.min(safeSpeedKmh, maxStraightSpeed); // Cap speed during turns
+
+            // Gradual speed increase for realism
+            if (car.speed < maxSpeedKmh) {
+                car.speed = Math.min(car.speed + 1, maxSpeedKmh);  // Gradually increase speed (1 km/h per frame)
+            } else {
+                car.speed = maxSpeedKmh;  // Maintain max speed once reached
+            }
+
+            // Update car's position based on speed (speed in km/h, convert to m/s for movement)
+            let speedInMetersPerSecond = car.speed / 3.6; // Convert speed to m/s for movement
+
+            if (distance > speedInMetersPerSecond) {
+                car.x += (dx / distance) * speedInMetersPerSecond;
+                car.y += (dy / distance) * speedInMetersPerSecond;
+                car.angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            } else {
+                car.index++;
+            }
+
+            // Update the camera and redraw the scene
+            updateCamera();
+            drawScene();
+
+            // Continue the animation
+            //requestAnimationFrame(animateCar);
+            
+            setTimeout(() => {
+        requestAnimationFrame(animateCar);
+        // Your animation logic here
+    }, 1000 / 60);
+        }
+
+
+        function extendRoad() {
+            let lastSegment = path[path.length - 1];
+            let lastX = lastSegment.endX;
+            let lastY = lastSegment.endY;
+            //let lastAngle = car.angle;
+            let lastAngle = publicAngle;
+
+            let newSegment = generateRandomDirection(lastX, lastY, lastAngle);
+            path = path.concat(newSegment); // Append new segment to the existing road
+        }
+
+        function generateRandomDirection(startX, startY, startAngle) {
+            let length = 400 + Math.random() * 600;  // Random length between 200 and 300 units
+            let direction = Math.random() < 0.5 ? "left" : "right";  // Randomly choose left or right for the turn
+            let turnAngle = Math.random() * 30;  // Turn angle now ranges from 0 to 180 degrees
+
+            let end = getNewPosition(startX, startY, startAngle, length);
+            let segment = [{ x: startX, y: startY, type: "line", endX: end.x, endY: end.y, storedAngle: turnAngle, storedDirection: direction, storedLength: length }];
+
+            // Generate the turn path with the random angle
+            
+            let turnPath = generateTurn(end.x, end.y, startAngle, direction, turnAngle);
+
+
+            return segment.concat(turnPath);  // Return the combined segment and turn path
+        }
+
+
+        function updateCamera() {
+            // Smoothly update camera position
+            camera.x += (car.x - camera.x - canvas.width / 2) * 0.1;
+            camera.y += (car.y - camera.y - canvas.height / 2) * 0.1;
+        }
+
+        function getNewPosition(x, y, angle, length) {
+            let radian = angle * Math.PI / 180;
+            return { x: x + length * Math.cos(radian), y: y + length * Math.sin(radian) };
+        }
+
+        drawScene();
+    </script>
+
+</body>
+
+</html>
